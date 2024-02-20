@@ -66,6 +66,7 @@ CLASSES = [ 'background','road', 'lanemarks', 'curb', 'person', 'rider', 'vehicl
 
 
 class_colors_bgr = [
+    [0,0,0],         # background
     [255, 0, 255],   # road
     [255, 0, 0],     # lanemarks
     [0, 255, 0],     # curb
@@ -365,7 +366,7 @@ test_epoch = ValidEpoch(
 # logs = test_epoch.run(test_dataloader)
 
 
-image, gt_mask = test_dataset[2]  
+image, gt_mask = test_dataset[10]  
 print("test image agd gt shape", image.shape, gt_mask.shape)
 x_tensor = torch.from_numpy(image).to(DEVICE).unsqueeze(0)
 predicted_mask = Trained_model(x_tensor)
@@ -390,11 +391,11 @@ def visualizeData(image, ground_truth_mask, predicted_mask):
 
 
 
-visualizeData(
-        image=image_t, 
-        ground_truth_mask=gt_mask, 
-        predicted_mask=pr_mask
-    )
+# visualizeData(
+#         image=image_t, 
+#         ground_truth_mask=gt_mask, 
+#         predicted_mask=pr_mask
+#     )
 
 
 predicted_output = torch.argmax(predicted_mask.squeeze(), dim=0).detach().cpu().numpy()

@@ -58,7 +58,8 @@ print('Class Names: ', class_names)
 print('Class RGB values: ', class_rgb_values)
 
 
-CLASSES = [ 'road', 'lanemarks', 'curb', 'person', 'rider', 'vehicles', 'bicycle', 'motorcycle', 'traffic sign']
+# CLASSES = [ 'road', 'lanemarks', 'curb', 'person', 'rider', 'vehicles', 'bicycle', 'motorcycle', 'traffic sign']
+CLASSES = [ 'background','road', 'lanemarks', 'curb', 'person', 'rider', 'vehicles', 'bicycle', 'motorcycle', 'traffic sign']
 
 
 class_colors_bgr = [
@@ -287,6 +288,7 @@ optimizer = torch.optim.Adam([
 
 
 loss = DiceLoss()
+# loss = nn.CrossEntropyLoss()
 
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
