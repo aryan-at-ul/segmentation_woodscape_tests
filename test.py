@@ -363,9 +363,8 @@ test_epoch = ValidEpoch(
     device=DEVICE,
 )
  
-# logs = test_epoch.run(test_dataloader)
-
-
+logs = test_epoch.run(test_dataloader)
+print(logs)
 image, gt_mask = test_dataset[10]  
 print("test image agd gt shape", image.shape, gt_mask.shape)
 x_tensor = torch.from_numpy(image).to(DEVICE).unsqueeze(0)
