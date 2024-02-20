@@ -388,7 +388,7 @@ ENCODER = 'resnet101'
 ENCODER_WEIGHTS = 'imagenet'
 ACTIVATION = 'softmax' 
 
-CLASSES = [ 'road', 'lanemarks', 'curb', 'person', 'rider', 'vehicles', 'bicycle', 'motorcycle', 'traffic sign']
+CLASSES = [ 'background','road', 'lanemarks', 'curb', 'person', 'rider', 'vehicles', 'bicycle', 'motorcycle', 'traffic sign']
 # create segmentation model with pretrained encoder
 #Decoders= PAN, PSPNet, MAnet, Linknet, FPN, DeepLabV3, DeepLabV3Plus, Unet
 model_smp =smp.FPN(
@@ -400,7 +400,7 @@ model_smp =smp.FPN(
 preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
 
 
-model_unet = UNET(in_channels=3, out_channels=9, features=[64, 128, 256, 512, 1024])
+model_unet = UNET(in_channels=3, out_channels=10, features=[64, 128, 256, 512, 1024])
 
 
 model_dunet = DUNet(num_classes=len(CLASSES))

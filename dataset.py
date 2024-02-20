@@ -12,6 +12,9 @@ import pandas as pd
 from torch.utils.data import Dataset as BaseDataset
 import torchvision.transforms as T
 from PIL import Image
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
 DATA_DIR = 'Dataset_1000'
 this_dir_path = os.path.abspath(os.getcwd())
 
@@ -48,10 +51,11 @@ print('Class Names: ', class_names)
 print('Class RGB values: ', class_rgb_values)
 
 
-CLASSES = [ 'road', 'lanemarks', 'curb', 'person', 'rider', 'vehicles', 'bicycle', 'motorcycle', 'traffic sign']
+CLASSES = [ 'background','road', 'lanemarks', 'curb', 'person', 'rider', 'vehicles', 'bicycle', 'motorcycle', 'traffic sign']
 
 
 class_colors_bgr = [
+    [0,0,0], #background
     [255, 0, 255],   # road
     [255, 0, 0],     # lanemarks
     [0, 255, 0],     # curb
@@ -85,12 +89,12 @@ class Dataset(BaseDataset):
         # Read data
         image = cv2.imread(self.images_fps[i],cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = cv2.resize(image, (256, 256), interpolation=cv2.INTER_AREA)
+        image = cv2.resize(image, (512, 512), interpolation=cv2.INTER_AREA)
         
         # # Read mask in BGR color space
         mask_bgr = cv2.imread(self.masks_fps[i], cv2.IMREAD_COLOR)
         mask_bgr = cv2.cvtColor(mask_bgr, cv2.COLOR_BGR2RGB)
-        mask_bgr = cv2.resize(mask_bgr, (256, 256), interpolation=cv2.INTER_NEAREST)
+        mask_bgr = cv2.resize(mask_bgr, (512, 512), interpolation=cv2.INTER_NEAREST)
 
 
         binary_masks = [np.all(mask_bgr == np.array(color), axis=-1).astype(np.float32) for color in class_colors_rgb]
@@ -133,7 +137,7 @@ def visualize(image, mask, class_rgb_values, class_idx, label=None):
 
     plt.show()
 
-# Looping through each class to visualize
+# # Looping through each class to visualize
 # for idx, label in enumerate(CLASSES):
 #     dataset = Dataset(x_test_dir, y_test_dir, classes=[label])
 #     image, mask = dataset[2]  # Assuming you want to visualize the third image in the dataset
