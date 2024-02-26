@@ -3,13 +3,17 @@ import torchvision
 # from dataset import CarvanaDataset
 from torch.utils.data import DataLoader
 import albumentations as albu
+from typing import Any, Callable, Iterable, List, Set, Tuple, TypeVar, Union
+from torch import Tensor
+# from focal_loss.focal_loss import FocalLoss
 
 def get_training_augmentation():
     # Reduced image size to lessen GPU memory usage
     train_transform = [
         # Resize to a size divisible by 32
-        albu.Resize(480, 640, p=1),  # Reduced sizes, ensure they are suitable for your model
-        albu.PadIfNeeded(min_height=480, min_width=640, p=1),  # Adjust padding to make divisible by 32
+        albu.Resize(256, 256, p=1),  # Reduced sizes, ensure they are suitable for your model
+        # albu.Resize(480, 640, p=1),
+        albu.PadIfNeeded(min_height=256, min_width=256, p=1),  # Adjust padding to make divisible by 32
         albu.HorizontalFlip(p=0.5),
         # Uncomment and adjust the following block if needed
         albu.OneOf([
@@ -24,11 +28,28 @@ def get_training_augmentation():
 def get_validation_augmentation():
     # Reduced image size for validation to match the training augmentation
     test_transform = [
-        albu.Resize(480, 640, p=1),
-        albu.PadIfNeeded(min_height=480, min_width=640, p=1)  # Adjust padding as required
+        albu.Resize(256, 256, p=1),
+        albu.PadIfNeeded(min_height=256, min_width=256, p=1)  # Adjust padding as required
     ]
     return albu.Compose(test_transform)
 
+
+def uniq(a: Tensor) -> Set:
+    return set(torch.unique(a.cpu()).numpy())
+
+
+def sset(a: Tensor, sub: Iterable) -> bool:
+    return uniq(a).issubset(sub)
+
+
+def simplex(t: Tensor, axis=1) -> bool:
+    _sum = t.sum(axis).type(torch.float32)
+    _ones = torch.ones_like(_sum, dtype=torch.float32)
+    return torch.allclose(_sum, _ones)
+
+
+def one_hot(t: Tensor, axis=1) -> bool:
+    return simplex(t, axis) and sset(t, [0, 1])
 
 # def get_training_augmentation():
 #     train_transform = [
