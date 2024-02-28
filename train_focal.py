@@ -326,6 +326,41 @@ print(class_indices)
 idc = [class_indices[class_name] for class_name in classes_to_consider]
 
 
+class WeightedFocalLoss(nn.Module):
+    "Weighted version of Focal Loss"
+    def __init__(self, class_weights: Tensor, **kwargs):
+        self.idc: List[int] = kwargs["idc"]
+        alpha = 0.15
+        gamma = 3
+        super(WeightedFocalLoss, self).__init__()
+        self.alpha = torch.tensor([alpha, 1-alpha]).cuda()
+        self.gamma = gamma
+        self.class_weights = class_weights.cuda()
+
+    def __call__(self, probs: Tensor, target: Tensor) -> Tensor:
+        pc = probs[:, self.idc, ...].type(torch.float32)
+        tc = target[:, self.idc, ...].type(torch.float32)
+        BCE_loss = F.binary_cross_entropy_with_logits(pc, tc, reduction='none')
+        # print("BCE_loss shape:", BCE_loss.shape)
+
+        targets = tc.type(torch.long)
+        pt = torch.exp(-BCE_loss)
+        at = self.alpha.gather(0, targets.data.view(-1))
+        at = at.view_as(tc)
+        F_loss = (1 - pt) ** self.gamma * BCE_loss * at
+        # print("F_loss shape:", F_loss.shape)
+        class_weights = self.class_weights.view([1, -1, 1, 1])
+        class_weights = class_weights.expand_as(F_loss)
+
+        # print("class_weights shape:", class_weights.shape)  if not dim 4 life is unfair!! 
+        weighted_loss = class_weights * F_loss
+
+        return weighted_loss.mean()
+ 
+
+
+
+
 class Focal_Loss(nn.Module):
     "Non weighted version of Focal Loss"
     def __init__(self, **kwargs):
@@ -357,6 +392,7 @@ class Focal_Loss(nn.Module):
 # loss = DiceLoss()
 # loss = nn.CrossEntropyLoss()
 # loss = FocalLoss(gamma=0.7)
+#loss = WeightedFocalLoss(class_weights=torch.tensor([0.1, 0.2, 0.5, 0.05, 1.0, 1.0, 0.4, 1.0, 1.0 ,1.0]), idc=idc) # imaginary wegiths!!! 
 loss = Focal_Loss(idc=idc)
 
 
