@@ -2,9 +2,19 @@ import torch
 import torch.nn as nn
 import torchvision.transforms.functional as TF
 import segmentation_models_pytorch as smp
-
+from networks import DEFORMED_UNet
 import torchvision.ops as ops
+from torch_vertex import * 
+from vig import Stem, FFN
+from torch.nn import Sequential as Seq
+import torchvision
 
+import torch.nn as n
+
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 class DeformableConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
         super(DeformableConv, self).__init__()
@@ -38,20 +48,20 @@ class DoubleConv2(nn.Module):
 
 
 
-class DoubleConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(DoubleConv, self).__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-        )
+# class DoubleConv(nn.Module):
+#     def __init__(self, in_channels, out_channels):
+#         super(DoubleConv, self).__init__()
+#         self.conv = nn.Sequential(
+#             nn.Conv2d(in_channels, out_channels, 3, 1, 1, bias=False),
+#             nn.BatchNorm2d(out_channels),
+#             nn.ReLU(inplace=True),
+#             nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False),
+#             nn.BatchNorm2d(out_channels),
+#             nn.ReLU(inplace=True),
+#         )
 
-    def forward(self, x):
-        return self.conv(x)
+#     def forward(self, x):
+#         return self.conv(x)
 
 class UNET(nn.Module):
     def __init__(
@@ -102,8 +112,142 @@ class UNET(nn.Module):
 
         return self.final_conv(x)
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-import torchvision
+class DoubleConv(nn.Module):
+    """(Convolution => [BN] => ReLU) * 2"""
+    def __init__(self, in_channels, out_channels):
+        super(DoubleConv, self).__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, 3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        return self.conv(x)
+
+class GraphUNet(nn.Module):
+    def __init__(self, in_channels, out_channels, features=[64,128]):
+        super(GraphUNet, self).__init__()
+        self.downs = nn.ModuleList()
+        self.ups = nn.ModuleList()
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.features = features
+
+        # Downsampling Path
+        for feature in features:
+            self.downs.append(DoubleConv(in_channels, feature))
+            in_channels = feature
+
+        # Bottleneck with Graph Convolution
+        self.bottleneck = Grapher(features[-1], kernel_size=3, dilation=1, conv='edge', act='relu', bias=True)
+
+        # Upsampling Path
+        reversed_features = features[::-1]
+        for i in range(len(reversed_features) - 1):
+            self.ups.append(nn.ConvTranspose2d(reversed_features[i], reversed_features[i+1], kernel_size=2, stride=2))
+            self.ups.append(DoubleConv(reversed_features[i+1] + reversed_features[i], reversed_features[i+1]))
+
+        # The final set of layers to restore the original feature size
+        self.ups.append(nn.ConvTranspose2d(reversed_features[-1], reversed_features[-1], kernel_size=2, stride=2))
+        self.ups.append(DoubleConv(reversed_features[-1] * 2, reversed_features[-1]))
+
+        # Final convolution
+        self.final_conv = nn.Conv2d(features[0], out_channels, kernel_size=1)
+
+    def forward(self, x):
+        skip_connections = []
+
+        # Downsampling
+        for down in self.downs:
+            x = down(x)
+            skip_connections.append(x)
+            x = self.pool(x)
+
+        # Bottleneck
+        x = self.bottleneck(x)
+
+        # Upsampling with skip connections
+        skip_connections = skip_connections[::-1]
+        for idx in range(0, len(self.ups), 2):
+            x = self.ups[idx](x)
+            skip_connection = skip_connections[idx // 2]
+            if x.size() != skip_connection.size():
+                x = F.interpolate(x, size=skip_connection.size()[2:])
+            x = torch.cat((x, skip_connection), dim=1)
+            x = self.ups[idx + 1](x)
+
+        x = self.final_conv(x)
+        return x
+
+
+class DeepGCN(torch.nn.Module):
+    def __init__(self):
+        super(DeepGCN, self).__init__()
+        channels = 192
+        k = 9
+        act =  'gelu'
+        norm = 'batch'
+        bias = True
+        epsilon = 0.2
+        stochastic = False
+        conv = 'mr'
+        self.n_blocks = 12
+        drop_path = 0.5
+        
+        self.stem = Stem(out_dim=channels, act=act)
+
+        dpr = [x.item() for x in torch.linspace(0, drop_path, self.n_blocks)]  # stochastic depth decay rule 
+        print('dpr', dpr)
+        num_knn = [int(x.item()) for x in torch.linspace(k, 2*k, self.n_blocks)]  # number of knn's k
+        print('num_knn', num_knn)
+        max_dilation = 196 // max(num_knn)
+        
+        self.pos_embed = nn.Parameter(torch.zeros(1, channels, 14, 14))
+
+        # if opt.use_dilation:
+        #     self.backbone = Seq(*[Seq(Grapher(channels, num_knn[i], min(i // 4 + 1, max_dilation), conv, act, norm,
+        #                                         bias, stochastic, epsilon, 1, drop_path=dpr[i]),
+        #                               FFN(channels, channels * 4, act=act, drop_path=dpr[i])
+        #                              ) for i in range(self.n_blocks)])
+        # else:
+        self.backbone = Seq(*[Seq(Grapher(channels, num_knn[i], 1, conv, act, norm,
+                                                bias, stochastic, epsilon, 1, drop_path=dpr[i]),
+                                      FFN(channels, channels * 4, act=act, drop_path=dpr[i])
+                                     ) for i in range(self.n_blocks)])
+
+        self.prediction = Seq(nn.Conv2d(channels, 1024, 1, bias=True),
+                              nn.BatchNorm2d(1024),
+                              act_layer(act),
+                              nn.Dropout(0.1),
+                              nn.Conv2d(1024, 10, 1, bias=True))
+        self.model_init()
+
+    def model_init(self):
+        for m in self.modules():
+            if isinstance(m, torch.nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight)
+                m.weight.requires_grad = True
+                if m.bias is not None:
+                    m.bias.data.zero_()
+                    m.bias.requires_grad = True
+
+    def forward(self, inputs):
+        x = self.stem(inputs) + self.pos_embed
+        B, C, H, W = x.shape
+        
+        for i in range(self.n_blocks):
+            x = self.backbone[i](x)
+
+        x = F.adaptive_avg_pool2d(x, 1)
+        return self.prediction(x).squeeze(-1).squeeze(-1)
+
 
 
 def crop_and_concat(upsampled, bypass, crop = False):
@@ -402,9 +546,13 @@ preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
 
 model_unet = UNET(in_channels=3, out_channels=10, features=[64, 128, 256, 512, 1024])
 
-
 model_dunet = DUNet(num_classes=len(CLASSES))
 
+model_def_dunet = DEFORMED_UNet(3,len(CLASSES),64) 
+
+model_vig =  GraphUNet(3,10)
+
+model_dgcn = DeepGCN()
 
 def test():
     x = torch.randn((3, 1, 161, 161))

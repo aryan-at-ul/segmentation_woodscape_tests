@@ -4,7 +4,7 @@ from albumentations.pytorch import ToTensorV2
 from tqdm import tqdm
 import torch.nn as nn
 import torch.optim as optim
-from model import UNET
+from model import UNET, model_def_dunet, model_vig, model_unet, model_dgcn
 from utils import (
     load_checkpoint,
     save_checkpoint,
@@ -22,6 +22,19 @@ from utils import *
 import sys
 import torch
 from tqdm import tqdm as tqdm
+from typing import List
+from focal_loss.focal_loss import FocalLoss
+
+import torch
+import numbers
+import math
+from torch import Tensor, einsum
+from torch import nn
+from utils import simplex, one_hot
+from scipy.ndimage import distance_transform_edt, morphological_gradient, distance_transform_cdt
+from skimage.measure import label, regionprops
+import matplotlib.pyplot as plt
+from torch.nn import functional as F
 DATA_DIR = 'Dataset_1000'
 this_dir_path = os.path.abspath(os.getcwd())
 
@@ -231,9 +244,18 @@ class TrainEpoch(Epoch):
         self.optimizer.zero_grad()
         prediction = self.model.forward(x)
         # loss = self.loss(prediction, y)
-        y_class_indices = torch.argmax(y, dim=1)  # Convert to shape [N, H, W]
+        y_class_indices = torch.argmax(y, dim=1)  # Convert to shape [N, H, W] 
 
+        # print("prediction shape: ", prediction.shape)
+        
+        y_class_indices = y # this is for focal loss only, remove for otehrs (other focal loss, not focal pytorch)
+        y_class_indices = torch.argmax(y, dim=1)  # Convert to [batch_size, height, width] this is for cross entropy, remove when focal
+
+        # prediction = F.softmax(prediction, dim=1) # this is for focal loss only, remove for otehrs
+        # print("prediction shapea after softmax: ", prediction.shape)
+        # print("y shape: ", y.shape)
         loss = self.loss(prediction,y_class_indices)
+        # loss = self.loss(prediction,y_class_indices,_)
         loss.backward()
         self.optimizer.step()
         return loss, prediction
@@ -260,6 +282,9 @@ class ValidEpoch(Epoch):
             prediction = self.model.forward(x)
             # loss = self.loss(prediction, y)
             y_class_indices = torch.argmax(y, dim=1)
+            y_class_indices = y # this is for focal loss only, remove for otehrs (other focal loss, not focal pytorch)
+            # prediction = F.softmax(prediction, dim=1) # this is for focal loss only, remove for otehrs
+
             loss = self.loss(prediction, y_class_indices)
 
         return loss, prediction
@@ -285,16 +310,98 @@ valid_dataset = Dataset(
 train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=1)
 valid_loader = DataLoader(valid_dataset, batch_size=1, shuffle=False, num_workers=0)
 
-# model_dunet = model_smp#model_unet # keep changing this 
-
+# model_dunet = model_def_dunet#model_unet # keep changing this 
+model_dunet =  model_vig 
 
 optimizer = torch.optim.Adam([ 
     dict(params=model_dunet.parameters(), lr=0.0001),
 ])
 
 
+class_indices = {class_name: index for index, class_name in enumerate(CLASSES)}
+
+
+# classes_to_consider = ['road', 'person', 'vehicles']
+classes_to_consider = ['background','road', 'lanemarks', 'curb', 'person', 'rider', 'vehicles', 'bicycle', 'motorcycle', 'traffic sign']   
+print(class_indices)
+idc = [class_indices[class_name] for class_name in classes_to_consider]
+
+
+class WeightedFocalLoss(nn.Module):
+    "Weighted version of Focal Loss"
+    def __init__(self, class_weights: Tensor, **kwargs):
+        self.idc: List[int] = kwargs["idc"]
+        alpha = 0.15
+        gamma = 3
+        super(WeightedFocalLoss, self).__init__()
+        self.alpha = torch.tensor([alpha, 1-alpha]).cuda()
+        self.gamma = gamma
+        self.class_weights = class_weights.cuda()
+
+    def __call__(self, probs: Tensor, target: Tensor) -> Tensor:
+        pc = probs[:, self.idc, ...].type(torch.float32)
+        tc = target[:, self.idc, ...].type(torch.float32)
+        BCE_loss = F.binary_cross_entropy_with_logits(pc, tc, reduction='none')
+        # print("BCE_loss shape:", BCE_loss.shape)
+
+        targets = tc.type(torch.long)
+        pt = torch.exp(-BCE_loss)
+        at = self.alpha.gather(0, targets.data.view(-1))
+        at = at.view_as(tc)
+        F_loss = (1 - pt) ** self.gamma * BCE_loss * at
+        # print("F_loss shape:", F_loss.shape)
+        class_weights = self.class_weights.view([1, -1, 1, 1])
+        class_weights = class_weights.expand_as(F_loss)
+
+        # print("class_weights shape:", class_weights.shape)  if not dim 4 life is unfair!! 
+        weighted_loss = class_weights * F_loss
+
+        return weighted_loss.mean()
+ 
+
+
+
+
+class Focal_Loss(nn.Module):
+    "Non weighted version of Focal Loss"
+    def __init__(self, **kwargs):
+        self.idc: List[int] = kwargs["idc"]
+        alpha=.15
+        gamma=3
+        super(Focal_Loss, self).__init__()
+        self.alpha = torch.tensor([alpha, 1-alpha]).cuda()
+        #self.alpha = torch.tensor([alpha, 1-alpha])
+        self.gamma = gamma
+
+    def __call__(self,probs: Tensor, target: Tensor) -> Tensor:
+        # pc = probs[:, self.idc, ...].type(torch.float32)
+        # tc = target[:, self.idc, ...].type(torch.float32)
+        # print("probs shape: ", probs.shape)
+        # print("target shape: ", target.shape)
+        pc = probs[:, self.idc, ...].type(torch.float32)
+        tc = target[:, self.idc, ...].type(torch.float32)
+
+        BCE_loss = F.binary_cross_entropy_with_logits(pc, tc, reduction='none')
+        targets = tc.type(torch.long)
+        at = self.alpha.gather(0, targets.data.view(-1))
+        pt = torch.exp(-BCE_loss)
+        F_loss = (1-pt)**self.gamma * BCE_loss
+        return F_loss.mean()
+
+
+
 # loss = DiceLoss()
 loss = nn.CrossEntropyLoss()
+# loss = FocalLoss(gamma=0.7)
+# loss = WeightedFocalLoss(class_weights=torch.tensor([0.1, 0.2, 0.5, 0.05, 1.0, 1.0, 0.4, 1.0, 1.0 ,1.0]), idc=idc) # imaginary wegiths!!! 
+# loss = Focal_Loss(idc=idc)
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+num_params_vig = count_parameters(model_vig)
+print("Model ViG Parameter Count:", num_params_vig)
+
 
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -319,7 +426,7 @@ valid_epoch = ValidEpoch(
 
 max_score = 0
  
-for i in range(0, 10):
+for i in range(0, 51):
     
     print('\nEpoch: {}'.format(i))
     train_logs = train_epoch.run(train_loader)
@@ -328,7 +435,7 @@ for i in range(0, 10):
     # Save the model with best iou score
     if max_score < valid_logs['iou_score']:
         max_score = valid_logs['iou_score']
-        torch.save(model_dunet, "UnetTypes.pth")
+        torch.save(model_dunet, "GraphUnetTypes.pth")
         print('Model saved!')
         
     if i == 50:
@@ -356,7 +463,7 @@ metrics = [
 ]
 
 
-Trained_model = torch.load('UnetTypes.pth')
+Trained_model = torch.load('GraphUnetTypes.pth')
  
 # Evaluate model on test set
 test_epoch = ValidEpoch(
