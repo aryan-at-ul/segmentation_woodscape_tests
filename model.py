@@ -8,7 +8,7 @@ from torch_vertex import *
 from vig import Stem, FFN
 from torch.nn import Sequential as Seq
 import torchvision
-
+from vit_unet import SwinUnet
 import torch.nn as n
 
 
@@ -133,7 +133,7 @@ class DoubleConv(nn.Module):
         return self.conv(x)
 
 class GraphUNet(nn.Module):
-    def __init__(self, in_channels, out_channels, features=[64,128]):
+    def __init__(self, in_channels, out_channels, features=[64,128,256,512]):
         super(GraphUNet, self).__init__()
         self.downs = nn.ModuleList()
         self.ups = nn.ModuleList()
@@ -552,7 +552,9 @@ model_def_dunet = DEFORMED_UNet(3,len(CLASSES),64)
 
 model_vig =  GraphUNet(3,10)
 
-model_dgcn = DeepGCN()
+# model_dgcn = DeepGCN()
+
+model_swinunet = SwinUnet()
 
 def test():
     x = torch.randn((3, 1, 161, 161))
