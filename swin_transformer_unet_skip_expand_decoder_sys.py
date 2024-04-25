@@ -225,6 +225,8 @@ class SwinTransformerBlock(nn.Module):
         self.register_buffer("attn_mask", attn_mask)
 
     def forward(self, x):
+        # print("resoiultion relarted error block, shape of x is ", x.shape)
+        # print("input resoultion expected is ", self.input_resolution)
         H, W = self.input_resolution
         B, L, C = x.shape
         assert L == H * W, "input feature has wrong size"
@@ -507,19 +509,68 @@ class BasicLayer_up(nn.Module):
             x = self.upsample(x)
         return x
 
-class PatchEmbed(nn.Module):
-    r""" Image to Patch Embedding
+# class PatchEmbed(nn.Module):
+#     r""" Image to Patch Embedding
 
-    Args:
-        img_size (int): Image size.  Default: 224.
-        patch_size (int): Patch token size. Default: 4.
-        in_chans (int): Number of input image channels. Default: 3.
-        embed_dim (int): Number of linear projection output channels. Default: 96.
-        norm_layer (nn.Module, optional): Normalization layer. Default: None
-    """
+#     Args:
+#         img_size (int): Image size.  Default: 224.
+#         patch_size (int): Patch token size. Default: 4.
+#         in_chans (int): Number of input image channels. Default: 3.
+#         embed_dim (int): Number of linear projection output channels. Default: 96.
+#         norm_layer (nn.Module, optional): Normalization layer. Default: None
+#     """
+
+#     def __init__(self, img_size=224, patch_size=4, in_chans=3, embed_dim=96, norm_layer=None):
+#         super().__init__()
+#         img_size = to_2tuple(img_size)
+#         patch_size = to_2tuple(patch_size)
+#         patches_resolution = [img_size[0] // patch_size[0], img_size[1] // patch_size[1]]
+#         self.img_size = img_size
+#         self.patch_size = patch_size
+#         self.patches_resolution = patches_resolution
+#         self.num_patches = patches_resolution[0] * patches_resolution[1]
+
+#         self.in_chans = in_chans
+#         self.embed_dim = embed_dim
+
+#         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+#         if norm_layer is not None:
+#             self.norm = norm_layer(embed_dim)
+#         else:
+#             self.norm = None
+
+#     def forward(self, x):
+#         B, C, H, W = x.shape
+#         # FIXME look at relaxing size constraints
+#         assert H == self.img_size[0] and W == self.img_size[1], \
+#             f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
+#         x = self.proj(x).flatten(2).transpose(1, 2)  # B Ph*Pw C
+#         if self.norm is not None:
+#             x = self.norm(x)
+#         print("return of patch embd:",x.shape)
+#         return x
+
+#     def flops(self):
+#         Ho, Wo = self.patches_resolution
+#         flops = Ho * Wo * self.embed_dim * self.in_chans * (self.patch_size[0] * self.patch_size[1])
+#         if self.norm is not None:
+#             flops += Ho * Wo * self.embed_dim
+#         return flops
+    
+def act_layer(act_type):
+    """Helper function to get activation layer"""
+    if act_type == 'relu':
+        return nn.ReLU()
+    elif act_type == 'gelu':
+        return nn.GELU()
+    else:
+        raise ValueError(f"Unsupported activation type {act_type}")
+
+class PatchEmbed(nn.Module):
 
     def __init__(self, img_size=224, patch_size=4, in_chans=3, embed_dim=96, norm_layer=None):
         super().__init__()
+        self.act = 'relu'
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)
         patches_resolution = [img_size[0] // patch_size[0], img_size[1] // patch_size[1]]
@@ -528,31 +579,32 @@ class PatchEmbed(nn.Module):
         self.patches_resolution = patches_resolution
         self.num_patches = patches_resolution[0] * patches_resolution[1]
 
-        self.in_chans = in_chans
-        self.embed_dim = embed_dim
-
-        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
-        if norm_layer is not None:
-            self.norm = norm_layer(embed_dim)
-        else:
-            self.norm = None
+        self.convs = nn.Sequential(
+            nn.Conv2d(in_chans, embed_dim // 8, 3, stride=2, padding=1),
+            nn.BatchNorm2d(embed_dim // 8),
+            act_layer(self.act),
+            nn.Conv2d(embed_dim // 8, embed_dim // 4, 3, stride=2, padding=1),
+            nn.BatchNorm2d(embed_dim // 4),
+            act_layer(self.act),
+            nn.Conv2d(embed_dim // 4, embed_dim // 2, 3, stride=1, padding=1),
+            nn.BatchNorm2d(embed_dim // 2),
+            act_layer(self.act),
+            nn.Conv2d(embed_dim // 2, embed_dim, 3, stride=1, padding=1),
+            nn.BatchNorm2d(embed_dim),
+            act_layer(self.act)
+        )
+        # projection layer to further reduce dimensions if necessary
+        self.proj = nn.Conv2d(embed_dim, embed_dim, kernel_size=patch_size, stride=patch_size)
 
     def forward(self, x):
-        B, C, H, W = x.shape
-        # FIXME look at relaxing size constraints
-        assert H == self.img_size[0] and W == self.img_size[1], \
-            f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
-        x = self.proj(x).flatten(2).transpose(1, 2)  # B Ph*Pw C
-        if self.norm is not None:
-            x = self.norm(x)
+        x = self.convs(x)  
+        # print("Shape after convolutions:", x.shape)
+        # x = self.proj(x)  # Apply projection layer, maybe !!! 
+        # print("Shape after projection:", x.shape)  
+        x = x.flatten(2).transpose(1, 2)  # Flatten and transpose for token-like structure
+        # print("Shape after flattening:", x.shape) 
         return x
 
-    def flops(self):
-        Ho, Wo = self.patches_resolution
-        flops = Ho * Wo * self.embed_dim * self.in_chans * (self.patch_size[0] * self.patch_size[1])
-        if self.norm is not None:
-            flops += Ho * Wo * self.embed_dim
-        return flops
 
 
 class SwinTransformerSys(nn.Module):
@@ -581,7 +633,7 @@ class SwinTransformerSys(nn.Module):
         use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False
     """
 
-    def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=1000,
+    def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=10,
                  embed_dim=96, depths=[2, 2, 2, 2], depths_decoder=[1, 2, 2, 2], num_heads=[3, 6, 12, 24],
                  window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
@@ -694,6 +746,7 @@ class SwinTransformerSys(nn.Module):
     #Encoder and Bottleneck
     def forward_features(self, x):
         x = self.patch_embed(x)
+        # print("inside encoder bottleneck patch emb",x.shape)
         if self.ape:
             x = x + self.absolute_pos_embed
         x = self.pos_drop(x)

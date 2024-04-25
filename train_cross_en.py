@@ -4,7 +4,7 @@ from albumentations.pytorch import ToTensorV2
 from tqdm import tqdm
 import torch.nn as nn
 import torch.optim as optim
-from model import UNET, model_def_dunet, model_vig, model_unet, model_dgcn
+from model import UNET, model_def_dunet, model_vig, model_unet,model_swinunet
 from utils import (
     load_checkpoint,
     save_checkpoint,
@@ -249,7 +249,7 @@ class TrainEpoch(Epoch):
         # print("prediction shape: ", prediction.shape)
         
         y_class_indices = y # this is for focal loss only, remove for otehrs (other focal loss, not focal pytorch)
-        y_class_indices = torch.argmax(y, dim=1)  # Convert to [batch_size, height, width] this is for cross entropy, remove when focal
+        # y_class_indices = torch.argmax(y, dim=1)  # Convert to [batch_size, height, width] this is for cross entropy, remove when focal
 
         # prediction = F.softmax(prediction, dim=1) # this is for focal loss only, remove for otehrs
         # print("prediction shapea after softmax: ", prediction.shape)
@@ -311,7 +311,7 @@ train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers
 valid_loader = DataLoader(valid_dataset, batch_size=1, shuffle=False, num_workers=0)
 
 # model_dunet = model_def_dunet#model_unet # keep changing this 
-model_dunet =  model_vig 
+model_dunet =  model_swinunet#model_vig 
 
 optimizer = torch.optim.Adam([ 
     dict(params=model_dunet.parameters(), lr=0.0001),
@@ -389,9 +389,44 @@ class Focal_Loss(nn.Module):
         return F_loss.mean()
 
 
+class DiceLossC(torch.nn.Module):
+    def __init__(self, eps=1e-6, beta=1.0, activation='sigmoid', ignore_channels=None):
+        super().__init__()
+        self.eps = eps
+        self.beta = beta
+        self.activation = activation
+        self.ignore_channels = ignore_channels
 
-# loss = DiceLoss()
-loss = nn.CrossEntropyLoss()
+    def forward(self, y_pr, y_gt):
+ 
+        if self.activation == 'sigmoid':
+            y_pr = torch.sigmoid(y_pr)
+        elif self.activation == 'softmax':
+            y_pr = torch.softmax(y_pr, dim=1)
+        elif self.activation is not None:
+            raise NotImplementedError(f"Activation '{self.activation}' is not implemented")
+
+
+        return 1 - self.f_score(y_pr, y_gt)
+
+    def f_score(self, y_pr, y_gt):
+
+        y_pr = y_pr.contiguous().view(-1)
+        y_gt = y_gt.contiguous().view(-1)
+
+
+        intersection = (y_pr * y_gt).sum()
+        fp = (y_pr * (1 - y_gt)).sum()
+        fn = ((1 - y_pr) * y_gt).sum()
+
+        numerator = (1 + self.beta**2) * intersection + self.eps
+        denominator = (1 + self.beta**2) * intersection + self.beta**2 * fn + fp + self.eps
+        return numerator / denominator
+
+
+
+loss = DiceLossC()
+# loss = nn.CrossEntropyLoss()
 # loss = FocalLoss(gamma=0.7)
 # loss = WeightedFocalLoss(class_weights=torch.tensor([0.1, 0.2, 0.5, 0.05, 1.0, 1.0, 0.4, 1.0, 1.0 ,1.0]), idc=idc) # imaginary wegiths!!! 
 # loss = Focal_Loss(idc=idc)
@@ -399,7 +434,7 @@ loss = nn.CrossEntropyLoss()
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-num_params_vig = count_parameters(model_vig)
+num_params_vig = count_parameters(model_dunet)
 print("Model ViG Parameter Count:", num_params_vig)
 
 
@@ -426,19 +461,19 @@ valid_epoch = ValidEpoch(
 
 max_score = 0
  
-for i in range(0, 51):
+for i in range(0, 101):
     
-    print('\nEpoch: {}'.format(i))
+    print('\nEpoch: {}'.format(i+1))
     train_logs = train_epoch.run(train_loader)
     valid_logs = valid_epoch.run(valid_loader)
     
     # Save the model with best iou score
     if max_score < valid_logs['iou_score']:
         max_score = valid_logs['iou_score']
-        torch.save(model_dunet, "GraphUnetTypes.pth")
+        torch.save(model_dunet, "SwinUnetTypes.pth")
         print('Model saved!')
         
-    if i == 50:
+    if i == 10:
         optimizer.param_groups[0]['lr'] = 1e-5
         print('Decrease decoder learning rate to 1e-5!')
 
@@ -463,7 +498,7 @@ metrics = [
 ]
 
 
-Trained_model = torch.load('GraphUnetTypes.pth')
+Trained_model = torch.load('SwinUnetTypes.pth')
  
 # Evaluate model on test set
 test_epoch = ValidEpoch(
