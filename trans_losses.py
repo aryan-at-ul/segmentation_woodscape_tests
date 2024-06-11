@@ -232,9 +232,9 @@ class MixSoftmaxCrossEntropyOHEMLoss(OhemCrossEntropy2d):
         preds, target = tuple(inputs)
         inputs = tuple(list(preds) + [target])
         if self.aux:
-            return dict(loss=self._aux_forward(*inputs))
+            self._aux_forward(*inputs)
         else:
-            return dict(loss=super(MixSoftmaxCrossEntropyOHEMLoss, self).forward(*inputs))
+            return super(MixSoftmaxCrossEntropyOHEMLoss, self).forward(*inputs)
 
 
 class LovaszSoftmax(nn.Module):
@@ -272,7 +272,7 @@ class LovaszSoftmax(nn.Module):
         elif len(preds) > 1:
             return dict(loss=self._multiple_forward(*inputs))
         else:
-            return dict(loss=super(MixSoftmaxCrossEntropyLoss, self).forward(*inputs))
+            return super(MixSoftmaxCrossEntropyLoss, self).forward(*inputs)
 
 
 class FocalLoss(nn.Module):
@@ -324,7 +324,7 @@ class FocalLoss(nn.Module):
     def forward(self, *inputs, **kwargs):
         preds, target = tuple(inputs)
         inputs = tuple(list(preds) + [target])
-        return dict(loss=self._aux_forward(*inputs))
+        return self._aux_forward(*inputs)
 
 
 class BinaryDiceLoss(nn.Module):
@@ -371,63 +371,6 @@ class BinaryDiceLoss(nn.Module):
             return loss
         else:
             raise Exception('Unexpected reduction {}'.format(self.reduction))
-
-
-# class DiceLoss(nn.Module):
-#     """Dice loss, need one hot encode input"""
-
-#     def __init__(self, weight=None, aux=True, aux_weight=0.4, ignore_index=-1, **kwargs):
-#         super(DiceLoss, self).__init__()
-#         self.kwargs = kwargs
-#         self.weight = weight
-#         self.ignore_index = ignore_index
-#         self.aux = aux
-#         self.aux_weight = aux_weight
-
-#     def _base_forward(self, predict, target, valid_mask):
-
-#         dice = BinaryDiceLoss(**self.kwargs)
-#         total_loss = 0
-#         predict = F.softmax(predict, dim=1)
-#         target = target[..., 0]
-#         print("Initial target shape:", target.shape)
-#         target_one_hot = F.one_hot(torch.clamp_min(target, 0).to(torch.int64))
-#         print("One-hot encoded target shape:", target_one_hot.shape)
-
-#         for i in range(target.shape[-1]):
-#             if i != self.ignore_index:
-#                 dice_loss = dice(predict[:, i], target[..., i], valid_mask)
-#                 if self.weight is not None:
-#                     assert self.weight.shape[0] == target.shape[1], \
-#                         'Expect weight shape [{}], get[{}]'.format(
-#                             target.shape[1], self.weight.shape[0])
-#                     dice_loss *= self.weights[i]
-#                 total_loss += dice_loss
-
-#         return total_loss / target.shape[-1]
-
-#     def _aux_forward(self, *inputs, **kwargs):
-#         *preds, target = tuple(inputs)
-
-#         print("Target tensor:", target.shape)
-#         print("Target data type:", target.dtype)
-#         target = torch.clamp_min(target, 0).to(torch.int64)  # Ensuring non-negative integers
-#         print("Clamped Target tensor:", target.shape)
-
-
-
-#         valid_mask = (target != self.ignore_index).long()
-#         target_one_hot = F.one_hot(torch.clamp_min(target, 0))
-#         loss = self._base_forward(preds[0], target_one_hot, valid_mask)
-#         for i in range(1, len(preds)):
-#             aux_loss = self._base_forward(preds[i], target_one_hot, valid_mask)
-#             loss += self.aux_weight * aux_loss
-#         return loss
-
-#     def forward(self, *inputs):
-#         preds, target = tuple(inputs)
-#         inputs = tuple(list(preds) + [target])
-#         return dict(loss=self._aux_forward(*inputs))
 
 
 class DiceLoss(nn.Module):
@@ -493,7 +436,7 @@ class PointRendLoss(nn.CrossEntropyLoss):
             result["points"],
             mode="nearest",
             align_corners=False
-        ).squeeze_(1).long()
+        ).squeeze_(1).long() # this is not present in refernce code.
         points_loss = F.cross_entropy(
             result["rend"], gt_points, ignore_index=self.ignore_index)
 
@@ -503,7 +446,7 @@ class PointRendLoss(nn.CrossEntropyLoss):
 
 
 def get_segmentation_loss(model = None, use_ohem=False, **kwargs):
-    LOSS_NAME  = 'dice'
+    LOSS_NAME  = 'focal'
     if use_ohem:
         return MixSoftmaxCrossEntropyOHEMLoss(**kwargs)
     elif LOSS_NAME == 'lovasz':
