@@ -75,8 +75,10 @@ transform = T.Resize(size = (512,512))
 
 class Dataset(BaseDataset):
     def __init__(self, images_dir, masks_dir, classes=None, augmentation=None, preprocessing=None):
-        self.ids_x = sorted(os.listdir(images_dir))
-        self.ids_y = sorted(os.listdir(masks_dir))
+        a = os.listdir(images_dir)
+        b = os.listdir(masks_dir)
+        self.ids_x = sorted(a[:100])
+        self.ids_y = sorted(os.listdir(b[:100]))
         self.images_fps = [os.path.join(images_dir, image_id) for image_id in self.ids_x]
         self.masks_fps = [os.path.join(masks_dir, image_id) for image_id in self.ids_y]
 
@@ -89,12 +91,12 @@ class Dataset(BaseDataset):
         # Read data
         image = cv2.imread(self.images_fps[i],cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = cv2.resize(image, (512, 512), interpolation=cv2.INTER_AREA)
+        image = cv2.resize(image, (224, 224), interpolation=cv2.INTER_AREA)
         
         # # Read mask in BGR color space
         mask_bgr = cv2.imread(self.masks_fps[i], cv2.IMREAD_COLOR)
         mask_bgr = cv2.cvtColor(mask_bgr, cv2.COLOR_BGR2RGB)
-        mask_bgr = cv2.resize(mask_bgr, (512, 512), interpolation=cv2.INTER_NEAREST)
+        mask_bgr = cv2.resize(mask_bgr, (224, 224), interpolation=cv2.INTER_NEAREST)
 
 
         binary_masks = [np.all(mask_bgr == np.array(color), axis=-1).astype(np.float32) for color in class_colors_rgb]

@@ -10,6 +10,11 @@ from torch.nn import Sequential as Seq
 import torchvision
 from vit_unet import SwinUnet
 import torch.nn as n
+from dat import DAT
+# from AttaNet import AttaNet
+# from trans4pass import Trans4PASS_Backbone
+# from functools import partial
+from segbase import Trans4PASS
 
 
 import torch
@@ -25,6 +30,8 @@ class DeformableConv(nn.Module):
         offset = self.offset_conv(x)
         x = self.deform_conv(x, offset)
         return x
+
+
 
 class DoubleConv2(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -46,22 +53,21 @@ class DoubleConv2(nn.Module):
         return x
 
 
+class DoubleConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(DoubleConv, self).__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        )
 
+    def forward(self, x):
+        return self.conv(x)
 
-# class DoubleConv(nn.Module):
-#     def __init__(self, in_channels, out_channels):
-#         super(DoubleConv, self).__init__()
-#         self.conv = nn.Sequential(
-#             nn.Conv2d(in_channels, out_channels, 3, 1, 1, bias=False),
-#             nn.BatchNorm2d(out_channels),
-#             nn.ReLU(inplace=True),
-#             nn.Conv2d(out_channels, out_channels, 3, 1, 1, bias=False),
-#             nn.BatchNorm2d(out_channels),
-#             nn.ReLU(inplace=True),
-#         )
-
-#     def forward(self, x):
-#         return self.conv(x)
 
 class UNET(nn.Module):
     def __init__(
@@ -552,9 +558,33 @@ model_def_dunet = DEFORMED_UNet(3,len(CLASSES),64)
 
 model_vig =  GraphUNet(3,10)
 
+# model_attanet = AttaNet(n_classes=10)
+
 # model_dgcn = DeepGCN()
 
 model_swinunet = SwinUnet()
+
+model_dat = DAT(dim_stem=96,
+        dims=[96, 192, 384, 768],
+        depths=[2, 4, 18, 2],
+        stage_spec=[
+            ["N", "D"], 
+            ["N", "D", "N", "D"], 
+            ["N", "D", "N", "D", "N", "D", "N", "D", "N", "D", "N", "D", "N", "D", "N", "D", "N", "D"], 
+            ["D", "D"]],
+        heads=[3, 6, 12, 24],
+        groups=[1, 2, 3, 6],
+        use_pes=[True, True, True, True],
+        strides=[8, 4, 2, 1],
+        offset_range_factor=[-1, -1, -1, -1],
+        use_dwc_mlps=[True, True, True, True],
+        use_lpus=[True, True, True, True],
+        use_conv_patches=True,
+        ksizes=[9, 7, 5, 3],
+        nat_ksizes=[7, 7, 7, 7],
+        drop_path_rate=0.4)
+
+model_trans  = Trans4PASS()
 
 def test():
     x = torch.randn((3, 1, 161, 161))
