@@ -207,24 +207,44 @@ def lovasz_softmax_flat(probas, labels, classes='present'):
     return mean(losses)
 
 
+# def flatten_probas(probas, labels, ignore=None):
+#     """
+#     Flattens predictions in the batch
+#     """
+#     print("probas.shape: ", probas.shape)
+#     print("labels.shape: ", labels.shape)
+#     if probas.dim() == 3:
+#         # assumes output of a sigmoid layer
+#         B, H, W = probas.size()
+#         probas = probas.view(B, 1, H, W)
+#     B, C, H, W = probas.size()
+#     probas = probas.permute(0, 2, 3, 1).contiguous(
+#     ).view(-1, C)  # B * H * W, C = P, C
+#     labels = labels.view(-1)
+#     if ignore is None:
+#         return probas, labels
+#     valid = (labels != ignore)
+#     vprobas = probas[valid.nonzero().squeeze()]
+#     vlabels = labels[valid]
+#     return vprobas, vlabels
+
 def flatten_probas(probas, labels, ignore=None):
-    """
-    Flattens predictions in the batch
-    """
-    if probas.dim() == 3:
-        # assumes output of a sigmoid layer
-        B, H, W = probas.size()
-        probas = probas.view(B, 1, H, W)
     B, C, H, W = probas.size()
-    probas = probas.permute(0, 2, 3, 1).contiguous(
-    ).view(-1, C)  # B * H * W, C = P, C
-    labels = labels.view(-1)
-    if ignore is None:
-        return probas, labels
-    valid = (labels != ignore)
-    vprobas = probas[valid.nonzero().squeeze()]
-    vlabels = labels[valid]
-    return vprobas, vlabels
+
+    probas = probas.permute(0, 2, 3, 1).contiguous().view(-1, C)
+    
+    # Convert one-hot encoded labels to class indices: [B, C, H, W] -> [B, H, W]
+    labels = labels.argmax(dim=1).view(-1) # dataset.py generates one hot encoded masks
+    
+    # Handle ignore index
+    if ignore is not None:
+        valid = (labels != ignore)
+        return probas[valid], labels[valid]
+    
+    return probas, labels
+
+
+
 
 
 def xloss(logits, labels, ignore=None):

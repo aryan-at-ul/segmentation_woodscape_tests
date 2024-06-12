@@ -268,9 +268,9 @@ class LovaszSoftmax(nn.Module):
         preds, target = tuple(inputs)
         inputs = tuple(list(preds) + [target])
         if self.aux:
-            return dict(loss=self._aux_forward(*inputs))
+            return self._aux_forward(*inputs)
         elif len(preds) > 1:
-            return dict(loss=self._multiple_forward(*inputs))
+            return self._multiple_forward(*inputs)
         else:
             return super(MixSoftmaxCrossEntropyLoss, self).forward(*inputs)
 
@@ -446,7 +446,7 @@ class PointRendLoss(nn.CrossEntropyLoss):
 
 
 def get_segmentation_loss(model = None, use_ohem=False, **kwargs):
-    LOSS_NAME  = 'focal'
+    LOSS_NAME  = 'lovasz'
     if use_ohem:
         return MixSoftmaxCrossEntropyOHEMLoss(**kwargs)
     elif LOSS_NAME == 'lovasz':
