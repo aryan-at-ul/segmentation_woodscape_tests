@@ -109,7 +109,7 @@ class ICNetLoss(nn.CrossEntropyLoss):
 
 
 class OhemCrossEntropy2d(nn.Module):
-    def __init__(self, ignore_index=-1, thresh=0.7, min_kept=100000, use_weight=True, **kwargs):
+    def __init__(self, ignore_index=-1, thresh=0.7, min_kept=100000, use_weight=False, **kwargs):
         super(OhemCrossEntropy2d, self).__init__()
         self.ignore_index = ignore_index
         self.thresh = float(thresh)
@@ -126,7 +126,8 @@ class OhemCrossEntropy2d(nn.Module):
 
     def forward(self, pred, target):
         n, c, h, w = pred.size()
-        target = target.view(-1)
+        # target = target.view(-1)
+        target = target.argmax(dim=1).view(-1)
         valid_mask = target.ne(self.ignore_index)
         target = target * valid_mask.long()
         num_valid = valid_mask.sum()
@@ -445,7 +446,7 @@ class PointRendLoss(nn.CrossEntropyLoss):
         return dict(loss=loss)
 
 
-def get_segmentation_loss(model = None, use_ohem=False, **kwargs):
+def get_segmentation_loss(model = None, use_ohem=True, **kwargs):
     LOSS_NAME  = 'lovasz'
     if use_ohem:
         return MixSoftmaxCrossEntropyOHEMLoss(**kwargs)
